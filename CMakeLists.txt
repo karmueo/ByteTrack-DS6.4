@@ -17,8 +17,10 @@ include_directories(${CMAKE_SOURCE_DIR}/includes)
 
 file(GLOB TRACK ${CMAKE_SOURCE_DIR}/src/*.cpp)
 
-set(CMAKE_CXX_FLAGS "-Wall -Wextra -fPIC")
-set(CMAKE_CUDA_FLAGS "--compiler-options -fPIC")
+# set(CMAKE_CXX_FLAGS "-Wall -Wextra -fPIC")
+# set(CMAKE_CUDA_FLAGS "--compiler-options -fPIC")
+set(CMAKE_CXX_FLAGS "-Wall -Wextra -fPIC -g")
+set(CMAKE_CUDA_FLAGS "--compiler-options -fPIC -g")
 
 link_directories(${DS_LIBS_DIR})
 add_library(ByteTracker SHARED ${TRACK})

@@ -2,7 +2,8 @@
 #include "BYTETracker.h"
 #include <fstream>
 
-NvMOTContext::NvMOTContext(const NvMOTConfig &configIn, NvMOTConfigResponse &configResponse) {
+NvMOTContext::NvMOTContext(const NvMOTConfig &configIn, NvMOTConfigResponse &configResponse)
+{
     configResponse.summaryStatus = NvMOTConfigStatus_OK;
 }
 
@@ -10,12 +11,15 @@ NvMOTContext::~NvMOTContext()
 {
 }
 
-NvMOTStatus NvMOTContext::processFrame(const NvMOTProcessParams *params, NvMOTTrackedObjBatch *pTrackedObjectsBatch) {
-    for (uint streamIdx = 0; streamIdx < pTrackedObjectsBatch->numFilled; streamIdx++){
-        NvMOTTrackedObjList   *trackedObjList = &pTrackedObjectsBatch->list[streamIdx];
-        NvMOTFrame            *frame          = &params->frameList[streamIdx];
+NvMOTStatus NvMOTContext::processFrame(const NvMOTProcessParams *params, NvMOTTrackedObjBatch *pTrackedObjectsBatch)
+{
+    for (uint streamIdx = 0; streamIdx < pTrackedObjectsBatch->numFilled; streamIdx++)
+    {
+        NvMOTTrackedObjList *trackedObjList = &pTrackedObjectsBatch->list[streamIdx];
+        NvMOTFrame *frame = &params->frameList[streamIdx];
         std::vector<NvObject> nvObjects(frame->objectsIn.numFilled);
-        for (uint32_t numObjects = 0; numObjects < frame->objectsIn.numFilled; numObjects++) {
+        for (uint32_t numObjects = 0; numObjects < frame->objectsIn.numFilled; numObjects++)
+        {
             NvMOTObjToTrack *objectToTrack = &frame->objectsIn.list[numObjects];
             NvObject nvObject;
             nvObject.prob = objectToTrack->confidence;
@@ -31,6 +35,9 @@ NvMOTStatus NvMOTContext::processFrame(const NvMOTProcessParams *params, NvMOTTr
         if (byteTrackerMap.find(frame->streamID) == byteTrackerMap.end())
             byteTrackerMap.insert(std::pair<uint64_t, std::shared_ptr<BYTETracker>>(frame->streamID, std::make_shared<BYTETracker>(15, 30)));
 
+        cvTracker_ = std::make_shared<CvTracker>(30, 30);
+        cvTracker_->update(params);
+
         std::vector<STrack> outputTracks = byteTrackerMap.at(frame->streamID)->update(nvObjects);
 
         if (trackedObjList->numAllocated != MAX_TARGETS_PER_STREAM)
@@ -44,39 +51,43 @@ NvMOTStatus NvMOTContext::processFrame(const NvMOTProcessParams *params, NvMOTTr
         NvMOTTrackedObj *trackedObjs = trackedObjList->list;
         int filled = 0;
 
-        for (STrack &sTrack: outputTracks) {
+        for (STrack &sTrack : outputTracks)
+        {
             if (filled >= MAX_TARGETS_PER_STREAM)
                 break;
             std::vector<float> tlwh = sTrack.original_tlwh;
             NvMOTRect motRect{tlwh[0], tlwh[1], tlwh[2], tlwh[3]};
             NvMOTTrackedObj *trackedObj = &trackedObjs[filled];
             trackedObj->classId = 0;
-            trackedObj->trackingId = (uint64_t) sTrack.track_id;
+            trackedObj->trackingId = (uint64_t)sTrack.track_id;
             trackedObj->bbox = motRect;
             trackedObj->confidence = 1;
-            trackedObj->age = (uint32_t) sTrack.tracklet_len;
+            trackedObj->age = (uint32_t)sTrack.tracklet_len;
             trackedObj->associatedObjectIn = sTrack.associatedObjectIn;
             trackedObj->associatedObjectIn->doTracking = true;
             filled++;
         }
 
-        trackedObjList->streamID     = frame->streamID;
-        trackedObjList->frameNum     = frame->frameNum;
-        trackedObjList->valid        = true;
-        trackedObjList->list         = trackedObjs;
-        trackedObjList->numFilled    = filled;
+        trackedObjList->streamID = frame->streamID;
+        trackedObjList->frameNum = frame->frameNum;
+        trackedObjList->valid = true;
+        trackedObjList->list = trackedObjs;
+        trackedObjList->numFilled = filled;
         trackedObjList->numAllocated = MAX_TARGETS_PER_STREAM;
     }
     return NvMOTStatus_OK;
 }
 
 NvMOTStatus NvMOTContext::retrieveMiscData(const NvMOTProcessParams *params,
-                                 NvMOTTrackerMiscData *pTrackerMiscData){
+                                           NvMOTTrackerMiscData *pTrackerMiscData)
+{
     return NvMOTStatus_OK;
 }
 
-NvMOTStatus NvMOTContext::removeStream(const NvMOTStreamId streamIdMask) {
-    if (byteTrackerMap.find(streamIdMask) != byteTrackerMap.end()){
+NvMOTStatus NvMOTContext::removeStream(const NvMOTStreamId streamIdMask)
+{
+    if (byteTrackerMap.find(streamIdMask) != byteTrackerMap.end())
+    {
         std::cout << "Removing tracker for stream: " << streamIdMask << std::endl;
         byteTrackerMap.erase(streamIdMask);
     }
