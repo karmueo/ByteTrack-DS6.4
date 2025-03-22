@@ -9,20 +9,21 @@ NvMOTStatus NvMOT_Query(uint16_t customConfigFilePathSize,
      * 用户可以解析 pCustomConfigFilePath 中的低级配置文件来检查
      * 低级跟踪器的要求
      */
+    /** An optional function queryParams(NvMOTQuery&) can be implemented in context handle to fill query params. */
+    /*
+    if (pQuery->contextHandle)
+    {
+         pQuery->contextHandle->queryParams(*pQuery);
+    }
+    */
 
     /**  所有自定义跟踪器的必需配置。 */
-    pQuery->computeConfig = NVMOTCOMP_GPU;             // among {NVMOTCOMP_GPU, NVMOTCOMP_CPU}
-    pQuery->numTransforms = 0;                         // 0 for IOU and NvSORT tracker, 1 for NvDCF or NvDeepSORT tracker as they require the video frames
-    pQuery->colorFormats[0] = NVBUF_COLOR_FORMAT_NV12; // among {NVBUF_COLOR_FORMAT_NV12, NVBUF_COLOR_FORMAT_RGBA}
+    pQuery->computeConfig = NVMOTCOMP_CPU; // among {NVMOTCOMP_GPU, NVMOTCOMP_CPU}
+    pQuery->numTransforms = 1;             // 0 for IOU and NvSORT tracker, 1 for NvDCF or NvDeepSORT tracker as they require the video frames
+    pQuery->memType = NVBUF_MEM_CUDA_UNIFIED;
+    pQuery->batchMode = NvMOTBatchMode_Batch;          // batchMode must be set as NvMOTBatchMode_Batch
+    pQuery->colorFormats[0] = NVBUF_COLOR_FORMAT_RGBA; // among {NVBUF_COLOR_FORMAT_NV12, NVBUF_COLOR_FORMAT_RGBA}
 
-// among {NVBUF_MEM_DEFAULT, NVBUF_MEM_CUDA_DEVICE, NVBUF_MEM_CUDA_UNIFIED, NVBUF_MEM_CUDA_PINNED, ... }
-#ifdef __aarch64__
-    pQuery->memType = NVBUF_MEM_DEFAULT;
-#else
-    pQuery->memType = NVBUF_MEM_CUDA_DEVICE;
-#endif
-
-    pQuery->batchMode = NvMOTBatchMode_Batch;             // batchMode must be set as NvMOTBatchMode_Batch
     pQuery->maxTargetsPerStream = MAX_TARGETS_PER_STREAM; // Max number of targets stored for each stream
 
     /** 可选配置以设置其他功能。 */

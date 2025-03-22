@@ -1,10 +1,19 @@
 #include "Tracker.h"
-#include "BYTETracker.h"
 #include <fstream>
+#include <cuda_runtime.h>
 
 NvMOTContext::NvMOTContext(const NvMOTConfig &configIn, NvMOTConfigResponse &configResponse)
 {
     configResponse.summaryStatus = NvMOTConfigStatus_OK;
+
+    bool HOG = true;
+    bool FIXEDWINDOW = false;
+    bool MULTISCALE = true;
+    bool LAB = false;
+
+    // fdsstTracker = std::make_shared<FDSSTTracker>(HOG, FIXEDWINDOW, MULTISCALE, LAB);
+    fdsstTracker = std::make_shared<FDSSTTracker>();
+    // cv_tracker_ = cv::TrackerKCF::create();
 }
 
 NvMOTContext::~NvMOTContext()
@@ -13,32 +22,59 @@ NvMOTContext::~NvMOTContext()
 
 NvMOTStatus NvMOTContext::processFrame(const NvMOTProcessParams *params, NvMOTTrackedObjBatch *pTrackedObjectsBatch)
 {
+    cv::Mat in_mat;
+
+    if (!params || params->numFrames <= 0)
+    {
+        return NvMOTStatus_OK;
+    }
+
     for (uint streamIdx = 0; streamIdx < pTrackedObjectsBatch->numFilled; streamIdx++)
     {
         NvMOTTrackedObjList *trackedObjList = &pTrackedObjectsBatch->list[streamIdx];
         NvMOTFrame *frame = &params->frameList[streamIdx];
-        std::vector<NvObject> nvObjects(frame->objectsIn.numFilled);
-        for (uint32_t numObjects = 0; numObjects < frame->objectsIn.numFilled; numObjects++)
+
+        if (frame->bufferList[0] == nullptr)
         {
-            NvMOTObjToTrack *objectToTrack = &frame->objectsIn.list[numObjects];
-            NvObject nvObject;
-            nvObject.prob = objectToTrack->confidence;
-            nvObject.label = objectToTrack->classId;
-            nvObject.rect[0] = objectToTrack->bbox.x;
-            nvObject.rect[1] = objectToTrack->bbox.y;
-            nvObject.rect[2] = objectToTrack->bbox.width;
-            nvObject.rect[3] = objectToTrack->bbox.height;
-            nvObject.associatedObjectIn = objectToTrack;
-            nvObjects.push_back(nvObject);
+            std::cout << "frame->bufferList[0] is nullptr" << std::endl;
+            continue;
         }
 
-        if (byteTrackerMap.find(frame->streamID) == byteTrackerMap.end())
-            byteTrackerMap.insert(std::pair<uint64_t, std::shared_ptr<BYTETracker>>(frame->streamID, std::make_shared<BYTETracker>(15, 30)));
+        NvBufSurfaceParams *bufferParams = frame->bufferList[0];
+        cv::Mat bgraFrame(bufferParams->height, bufferParams->width, CV_8UC4, bufferParams->dataPtr);
+        // 转化为灰度图
+        cv::cvtColor(bgraFrame, in_mat, cv::COLOR_BGRA2GRAY);
+        if (is_tracked_ == false)
+        {
+            if (frame->objectsIn.numFilled == 0)
+            {
+                continue;
+            }
 
-        cvTracker_ = std::make_shared<CvTracker>(30, 30);
-        cvTracker_->update(params);
+            // cv::imwrite("out.jpeg", bgraFrame);
 
-        std::vector<STrack> outputTracks = byteTrackerMap.at(frame->streamID)->update(nvObjects);
+            // FIXME: 目前只跟踪第一个
+            objectToTrack_ = &frame->objectsIn.list[0];
+            Rect initRect = cv::Rect(objectToTrack_->bbox.x,
+                                     objectToTrack_->bbox.y,
+                                     objectToTrack_->bbox.width,
+                                     objectToTrack_->bbox.height);
+
+            // cv_tracker_->init(in_mat, initRect);
+
+            fdsstTracker->init(initRect, in_mat);
+            showRect_ = initRect;
+            is_tracked_ = true;
+        }
+        else
+        {
+            showRect_ = fdsstTracker->update(in_mat);
+            // cv::imwrite("in_mat.jpeg", in_mat);
+            // cv_tracker_->update(in_mat, showRect_);
+            // 把矩形框画在图像上
+            // cv::rectangle(in_mat, showRect_, cv::Scalar(0, 255, 0), 2);
+            // cv::imwrite("out.jpeg", in_mat);
+        }
 
         if (trackedObjList->numAllocated != MAX_TARGETS_PER_STREAM)
         {
@@ -51,22 +87,16 @@ NvMOTStatus NvMOTContext::processFrame(const NvMOTProcessParams *params, NvMOTTr
         NvMOTTrackedObj *trackedObjs = trackedObjList->list;
         int filled = 0;
 
-        for (STrack &sTrack : outputTracks)
-        {
-            if (filled >= MAX_TARGETS_PER_STREAM)
-                break;
-            std::vector<float> tlwh = sTrack.original_tlwh;
-            NvMOTRect motRect{tlwh[0], tlwh[1], tlwh[2], tlwh[3]};
-            NvMOTTrackedObj *trackedObj = &trackedObjs[filled];
-            trackedObj->classId = 0;
-            trackedObj->trackingId = (uint64_t)sTrack.track_id;
-            trackedObj->bbox = motRect;
-            trackedObj->confidence = 1;
-            trackedObj->age = (uint32_t)sTrack.tracklet_len;
-            trackedObj->associatedObjectIn = sTrack.associatedObjectIn;
-            trackedObj->associatedObjectIn->doTracking = true;
-            filled++;
-        }
+        NvMOTRect motRect{showRect_.x, showRect_.y, showRect_.width, showRect_.height};
+        NvMOTTrackedObj *trackedObj = &trackedObjs[filled];
+        trackedObj->classId = 0;
+        trackedObj->trackingId = 0;
+        trackedObj->bbox = motRect;
+        trackedObj->confidence = 1;
+        trackedObj->age = age_++;
+        trackedObj->associatedObjectIn = objectToTrack_;
+        trackedObj->associatedObjectIn->doTracking = true;
+        filled++;
 
         trackedObjList->streamID = frame->streamID;
         trackedObjList->frameNum = frame->frameNum;
@@ -86,10 +116,5 @@ NvMOTStatus NvMOTContext::retrieveMiscData(const NvMOTProcessParams *params,
 
 NvMOTStatus NvMOTContext::removeStream(const NvMOTStreamId streamIdMask)
 {
-    if (byteTrackerMap.find(streamIdMask) != byteTrackerMap.end())
-    {
-        std::cout << "Removing tracker for stream: " << streamIdMask << std::endl;
-        byteTrackerMap.erase(streamIdMask);
-    }
     return NvMOTStatus_OK;
 }

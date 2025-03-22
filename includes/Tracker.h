@@ -6,11 +6,15 @@
 #define DNSTARPROD_TRACKER_H
 
 #include "nvdstracker.h"
-#include "BYTETracker.h"
-#include "CvTracker.h"
+#include "fdssttracker.hpp"
+// #include <opencv2/opencv.hpp>
+// #include <opencv2/tracking.hpp>
 #include <memory>
 
 #define MAX_TARGETS_PER_STREAM 512
+
+using namespace cv;
+using namespace std;
 
 /**
  * @brief Context for input video streams
@@ -60,8 +64,17 @@ protected:
      * Users can include an actual tracker implementation here as a member
      * `IMultiObjectTracker` can be assumed to an user-defined interface class
      */
-    std::map<uint64_t, std::shared_ptr<BYTETracker>> byteTrackerMap;
-    std::shared_ptr<CvTracker> cvTracker_;
+    // std::map<uint64_t, std::shared_ptr<BYTETracker>> byteTrackerMap;
+
+    std::shared_ptr<FDSSTTracker> fdsstTracker;
+
+    // Ptr<Tracker> cv_tracker_;
+
+    NvMOTObjToTrack *objectToTrack_;
+
+    bool is_tracked_ = false;
+    int64_t age_ = 0;
+    Rect showRect_;
 };
 
 #endif // DNSTARPROD_TRACKER_H
